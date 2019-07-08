@@ -102,13 +102,69 @@ namespace StudentExercises.Controllers
         // GET: Students/Edit/5
         public ActionResult Edit(int id)
         {
-            Student student = GetStudentById(id);
-            List<Cohort> cohorts = GetAllCohorts();
-            StudentEditViewModel viewModel = new StudentEditViewModel();
-            viewModel.Student = student;
-            viewModel.AvailableCohorts = cohorts;
+            using (SqlConnection conn = Connection)
+            {
+                conn.Open();
+                using (SqlCommand cmd = conn.CreateCommand())
+                {
+                    //we use a join to get all of the Ids of the exercises that student has assigned to them
+                    cmd.CommandText = @"
+                            SELECT s.Id,
+                                s.FirstName,
+                                s.LastName,
+                                s.SlackHandle,
+                                s.CohortId,
+                                se.ExerciseId
+                            FROM Student s
+                            LEFT JOIN StudentExercise se on s.Id = se.StudentId
+                            WHERE s.Id=@Id
+                        ";
+                    cmd.Parameters.Add(new SqlParameter("@Id", id));
+                    SqlDataReader reader = cmd.ExecuteReader();
 
-            return View(viewModel);
+                    StudentEditViewModel viewmodel = null;
+                    while (reader.Read())
+                    {
+                        //the first time this while loop runs, the view model will be null, which will grab the student we are trying to Edit
+                        if (viewmodel == null)
+                        {
+                            var studentId = reader.GetInt32(reader.GetOrdinal("Id"));
+
+                            viewmodel = new StudentEditViewModel();
+
+                            viewmodel.Student = new Student
+                            {
+                                Id = reader.GetInt32(reader.GetOrdinal("Id")),
+                                FirstName = reader.GetString(reader.GetOrdinal("FirstName")),
+                                LastName = reader.GetString(reader.GetOrdinal("LastName")),
+                                SlackHandle = reader.GetString(reader.GetOrdinal("SlackHandle")),
+                                CohortId = reader.GetInt32(reader.GetOrdinal("CohortId"))
+                            };
+                        }
+                        //this will add the selected exercises to the SelectedExercises list so it will populate in the edit form
+                        if (!reader.IsDBNull(reader.GetOrdinal("ExerciseId")))
+                        {
+                            viewmodel.SelectedExercises.Add(
+                                reader.GetInt32(reader.GetOrdinal("ExerciseId"))
+                            );
+                        }
+
+                    }
+                    reader.Close();
+                    //this would run if we didnt find a student with the ID given to us
+                    if (viewmodel == null)
+                    {
+                        return NotFound();
+                    }
+                    //populates the list of all available cohorts
+                    List<Cohort> cohorts = GetAllCohorts();
+                    viewmodel.AvailableCohorts = cohorts;
+                    //this method retrieves all of the exercises and adds them to the availableExercises List
+                    List<Exercise> exercises = GetAllExercises();
+                    viewmodel.AvailableExercises = exercises;
+                    return View(viewmodel);
+                }
+            }
         }
 
         // POST: Students/Edit/5
@@ -124,19 +180,39 @@ namespace StudentExercises.Controllers
                     conn.Open();
                     using (SqlCommand cmd = conn.CreateCommand())
                     {
+                        //we still keep our regular update statement to update the properties of the student
                         cmd.CommandText = @"UPDATE Student
                                                SET FirstName=@FirstName,
                                                    LastName=@LastName,
-                                                   SlackHandle=@SlackHandle,
+                                                   SlackHandle=@slack,
                                                    CohortId=@CohortId
                                              WHERE Id=@Id";
                         cmd.Parameters.Add(new SqlParameter("@FirstName", student.FirstName));
                         cmd.Parameters.Add(new SqlParameter("@LastName", student.LastName));
-                        cmd.Parameters.Add(new SqlParameter("@SlackHandle", student.SlackHandle));
+                        cmd.Parameters.Add(new SqlParameter("@slack", student.SlackHandle));
                         cmd.Parameters.Add(new SqlParameter("@CohortId", student.CohortId));
                         cmd.Parameters.Add(new SqlParameter("@Id", id));
 
                         cmd.ExecuteNonQuery();
+                        //this clears the parameters we set above
+                        cmd.Parameters.Clear();
+
+
+                        // We need to delete everything from that specific student's SE table, then rebuild...
+
+                        cmd.CommandText = "DELETE FROM StudentExercise WHERE StudentId = @StudentId";
+                        cmd.Parameters.Add(new SqlParameter("@StudentId", id));
+                        cmd.ExecuteNonQuery();
+                        //Now we rebuild the StudentExercise tables with the newly selected exercises by inserting and looping through the list of ints of selected exercises
+                        cmd.CommandText = @"INSERT INTO StudentExercise (StudentId, ExerciseId)
+                                                     VALUES (@StudentId, @ExerciseId)";
+                        foreach (var exerciseId in viewModel.SelectedExercises)
+                        {
+                            cmd.Parameters.Clear();
+                            cmd.Parameters.Add(new SqlParameter("@StudentId", id));
+                            cmd.Parameters.Add(new SqlParameter("@ExerciseId", exerciseId));
+                            cmd.ExecuteNonQuery();
+                        }
 
                         return RedirectToAction(nameof(Index));
                     }
@@ -246,6 +322,35 @@ namespace StudentExercises.Controllers
                     reader.Close();
 
                     return cohorts;
+                }
+            }
+        }
+
+        private List<Exercise> GetAllExercises()
+        {
+            using (SqlConnection conn = Connection)
+            {
+                conn.Open();
+                using (SqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @" SELECT e.Id, e.Name FROM Exercise e";
+                    SqlDataReader reader = cmd.ExecuteReader();
+
+                    List<Exercise> exercises = new List<Exercise>();
+                    while (reader.Read())
+                    {
+                        Exercise exercise = new Exercise
+                        {
+                            Id = reader.GetInt32(reader.GetOrdinal("Id")),
+                            Name = reader.GetString(reader.GetOrdinal("Name")),
+                        };
+
+                        exercises.Add(exercise);
+                    }
+
+                    reader.Close();
+
+                    return exercises;
                 }
             }
         }

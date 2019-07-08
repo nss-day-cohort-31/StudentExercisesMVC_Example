@@ -30,8 +30,15 @@
             <div class="form-group">
                 <label asp-for="Student.CohortId" class="control-label"></label>
                 <select asp-for="Student.CohortId" asp-items="@Model.AvailableCohortsSelectList"></select>
-            @*    <input asp-for="Student.CohortId" class="form-control" /> *@
+                @*    <input asp-for="Student.CohortId" class="form-control" /> *@
                 <span asp-validation-for="Student.CohortId" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="SelectedExercises" class="control-label"></label>
+                @*asp-items are the options in the list *@
+                @*adding in the word 'multiple' makes it a multi-select list*@
+                <select asp-for="SelectedExercises" multiple asp-items="@Model.AvailableExercisesSelectList"></select>
+                <span asp-validation-for="SelectedExercises" class="text-danger"></span>
             </div>
             <div class="form-group">
                 <input type="submit" value="Save" class="btn btn-primary" />
